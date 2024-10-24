@@ -12,6 +12,9 @@ pillow-heif = "^0.20.0"
 qrcode = "^8.0"
 
 
+[tool.poetry.group.dev.dependencies]
+black = "^24.10.0"
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
