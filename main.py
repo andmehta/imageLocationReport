@@ -3,6 +3,7 @@ from pathlib import Path
 from PIL import Image, ExifTags
 import os
 from pillow_heif import register_heif_opener
+import qrcode
 
 GPS_TAG = 34853  # GPSInfo tag ID
 
@@ -47,6 +48,28 @@ def extract_gps_coordinates(gps_info):
         return lat, lon
     return None, None
 
+def generate_qr_code(lat, lon, filename):
+    """Generate and save a QR code that opens Google Maps."""
+    google_maps_url = f"https://www.google.com/maps?q={lat},{lon}"
+    apple_maps_url = f"https://maps.apple.com/?q={lat},{lon}"
+
+    # Ensure the output directory exists
+    output_dir = Path("qr_codes")
+    output_dir.mkdir(exist_ok=True)
+
+    # Generate the QR code
+    google_qr = qrcode.make(google_maps_url)
+
+    output_file = f"qr_codes/{filename}_google_location_qr.png"
+    google_qr.save(output_file)
+    print(f"Google QR code saved as '{output_file}'.")
+
+    # Generate the QR code
+    apple_qr = qrcode.make(apple_maps_url)
+
+    output_file = f"qr_codes/{filename}_apple_location_qr.png"
+    apple_qr.save(output_file)
+    print(f"Google QR code saved as '{output_file}'.")
 
 def main():
     print("Running script")
@@ -68,7 +91,7 @@ def main():
             lat, lon = extract_gps_coordinates(gps_info)
             if lat is not None and lon is not None:
                 print(f"Latitude: {lat}, Longitude: {lon}")
-                # generate_qr_code(lat, lon, image_path.stem)
+                generate_qr_code(lat, lon, image_path.stem)
             else:
                 print(f"No GPS coordinates found in {image_path.name}.")
         else:
