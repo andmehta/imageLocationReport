@@ -1,9 +1,9 @@
+import os
 from pathlib import Path
 
-from PIL import Image, ExifTags
-import os
-from pillow_heif import register_heif_opener
 import qrcode
+from PIL import Image, ExifTags
+from pillow_heif import register_heif_opener
 
 GPS_TAG = 34853  # GPSInfo tag ID
 
@@ -28,19 +28,21 @@ def get_gps_data(image_path):
 
     return None  # Return None if no GPS data is found
 
+
 def convert_to_decimal(degrees, minutes, seconds, direction):
     """Convert DMS (Degrees, Minutes, Seconds) to Decimal."""
     decimal = degrees + (minutes / 60.0) + (seconds / 3600.0)
-    if direction in ['S', 'W']:
+    if direction in ["S", "W"]:
         decimal = -decimal
     return decimal
 
+
 def extract_gps_coordinates(gps_info):
     """Extract GPS latitude and longitude from GPSInfo dictionary."""
-    latitude = gps_info.get('GPSLatitude')
-    latitude_ref = gps_info.get('GPSLatitudeRef')
-    longitude = gps_info.get('GPSLongitude')
-    longitude_ref = gps_info.get('GPSLongitudeRef')
+    latitude = gps_info.get("GPSLatitude")
+    latitude_ref = gps_info.get("GPSLatitudeRef")
+    longitude = gps_info.get("GPSLongitude")
+    longitude_ref = gps_info.get("GPSLongitudeRef")
 
     if latitude and latitude_ref and longitude and longitude_ref:
         lat = convert_to_decimal(*latitude, latitude_ref)
@@ -48,34 +50,34 @@ def extract_gps_coordinates(gps_info):
         return lat, lon
     return None, None
 
-def generate_qr_code(lat, lon, filename):
+
+def generate_qr_code(lat, lon, filename, output_dir):
     """Generate and save a QR code that opens Google Maps."""
     google_maps_url = f"https://www.google.com/maps?q={lat},{lon}"
     apple_maps_url = f"https://maps.apple.com/?q={lat},{lon}"
 
     # Ensure the output directory exists
-    output_dir = Path("qr_codes")
+    output_dir = Path(output_dir)
     output_dir.mkdir(exist_ok=True)
 
     # Generate the QR code
-    google_qr = qrcode.make(google_maps_url)
+    def generate_qr(provider, image_name, url):
+        qr = qrcode.make(url)
+        output_file = f"{output_dir}/{image_name}_{provider}_location_qr.png"
+        qr.save(output_file)
+        return output_file
 
-    output_file = f"qr_codes/{filename}_google_location_qr.png"
-    google_qr.save(output_file)
-    print(f"Google QR code saved as '{output_file}'.")
+    google_output_file = generate_qr("google", filename, google_maps_url)
+    apple_output_file = generate_qr("apple", filename, apple_maps_url)
 
-    # Generate the QR code
-    apple_qr = qrcode.make(apple_maps_url)
+    return google_output_file, apple_output_file
 
-    output_file = f"qr_codes/{filename}_apple_location_qr.png"
-    apple_qr.save(output_file)
-    print(f"Google QR code saved as '{output_file}'.")
 
 def main():
     print("Running script")
-    print("Registering HEIF opener")
     register_heif_opener()
     directory_path = "images/stucco_repair"
+    output_path = "output/stucco_repair"
 
     image_dir = Path(directory_path)
 
@@ -83,19 +85,26 @@ def main():
         print(f"Directory not found: {directory_path}")
         return
 
-    for image_path in image_dir.glob("*.*"):  # Iterate over all files
+    image_metadata = {}
+    for image_path in image_dir.glob("*.HEIC"):  # Iterate over all files
         print(f"Processing: {image_path}")
+        image_metadata[image_path.stem] = {"name": image_path.stem, "path": str(image_path)}
+
         gps_info = get_gps_data(str(image_path))
+        image_metadata[image_path.stem]["gps_info"] = gps_info
 
         if gps_info:
             lat, lon = extract_gps_coordinates(gps_info)
+            image_metadata[image_path.stem]["latitude"] = lat
+            image_metadata[image_path.stem]["longitude"] = lon
             if lat is not None and lon is not None:
-                print(f"Latitude: {lat}, Longitude: {lon}")
-                generate_qr_code(lat, lon, image_path.stem)
-            else:
-                print(f"No GPS coordinates found in {image_path.name}.")
-        else:
-            print(f"No GPS data available in {image_path.name}.")
+                google_qr, apple_qr = generate_qr_code(lat, lon, image_path.stem, output_dir=output_path)
+                image_metadata[image_path.stem]["google_qr"] = google_qr
+                image_metadata[image_path.stem]["apple_qr"] = apple_qr
+    for key, value in image_metadata.items():
+        print(key)
+        for k, v in value.items():
+            print(f"\t{k}:{v}")
 
 
 if __name__ == "__main__":
