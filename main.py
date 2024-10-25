@@ -1,7 +1,7 @@
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 
 import qrcode
 from PIL import Image, ExifTags
@@ -57,26 +57,24 @@ def extract_gps_coordinates(gps_info):
     return None, None
 
 
-def generate_qr_code(lat, lon, filename, output_dir):
+def generate_qr_codes(lat: float, lon: float, filename: str, output_dir: str):
     """Generate and save a QR code that opens Google Maps."""
-    google_maps_url = f"https://www.google.com/maps?q={lat},{lon}"
-    apple_maps_url = f"https://maps.apple.com/?q={lat},{lon}"
 
-    # Ensure the output directory exists
-    output_dir = Path(output_dir)
-    output_dir.mkdir(exist_ok=True)
-
-    # Generate the QR code
     def generate_qr(provider, image_name, url):
         qr = qrcode.make(url)
         output_file = f"{output_dir}/{image_name}_{provider}_location_qr.png"
         qr.save(output_file)
         return output_file
 
-    google_output_file = generate_qr("google", filename, google_maps_url)
-    apple_output_file = generate_qr("apple", filename, apple_maps_url)
+    google_output_file = generate_qr(
+        "google", filename, f"https://www.google.com/maps?q={lat},{lon}"
+    )
+    apple_output_file = generate_qr(
+        "apple", filename, f"https://maps.apple.com/?q={lat},{lon}"
+    )
 
     return google_output_file, apple_output_file
+
 
 @dataclass
 class ImageMetadata:
@@ -88,19 +86,26 @@ class ImageMetadata:
     google_qr_code_path: Optional[str] = None
     apple_qr_code_path: Optional[str] = None
 
-def generate_pdf(image_metadata: Dict[str, ImageMetadata], output_file="output.pdf"):
+
+def generate_pdf(images_metadata: List[ImageMetadata], output_file="output.pdf"):
     """Create a PDF with each page containing the original image and QR codes."""
     c = canvas.Canvas(output_file, pagesize=letter)
     width, height = letter
-    for metadata in tqdm(image_metadata.values(), desc="Adding images to the PDF", unit="image"):
+    for metadata in tqdm(images_metadata, desc="Adding images to the PDF", unit="image"):
         # Add the filename at the top of the page
-        filename = Path(metadata.name)
         c.setFont("Helvetica-Bold", 16)
-        c.drawString(30, height - 50, f"File: {filename}")
+        c.drawString(30, height - 50, f"File: {metadata.name}")
 
         # Draw the original image (large version)
         original_img = ImageReader(metadata.path)
-        c.drawImage(original_img, 30, height / 2, width - 60, height / 2 - 80, preserveAspectRatio=True)
+        c.drawImage(
+            original_img,
+            30,
+            height / 2,
+            width - 60,
+            height / 2 - 80,
+            preserveAspectRatio=True,
+        )
 
         # Draw the Google Maps QR code (small version)
         c.drawString(60, 175, "Google Maps")
@@ -122,20 +127,31 @@ def generate_pdf(image_metadata: Dict[str, ImageMetadata], output_file="output.p
 
 def main():
     print("Running script")
-    register_heif_opener()
+
     project_name = "test"
     directory_path = f"images/{project_name}"
     output_path = f"output/{project_name}"
 
+    # Ensure the input and output directory exists
     image_dir = Path(directory_path)
 
     if not image_dir.exists():
         print(f"Directory not found: {directory_path}")
         return
+    output_dir = Path(output_path)
+    output_dir.mkdir(exist_ok=True)
 
+    # pillow plugin for .HEIC files
+    register_heif_opener()
     image_metadata = {}
-    for image_path in tqdm(image_dir.glob("*.HEIC"), desc="Processing images", unit="image"):  # Iterate over all files
-        image_metadata[image_path.stem] = ImageMetadata(name=image_path.stem, path=image_path)
+    valid_extensions = {".jpg", ".HEIC", ".png", ".jpeg"}
+    images = [f for f in image_dir.glob("*") if f.suffix in valid_extensions]
+    for image_path in tqdm(
+        images, desc="Processing images", unit="image"
+    ):  # Iterate over all files
+        image_metadata[image_path.stem] = ImageMetadata(
+            name=image_path.stem, path=image_path
+        )
 
         gps_info = get_gps_data(str(image_path))
         image_metadata[image_path.stem].gps_info = gps_info
@@ -145,11 +161,16 @@ def main():
             image_metadata[image_path.stem].latitude = lat
             image_metadata[image_path.stem].longitude = lon
             if lat is not None and lon is not None:
-                google_qr, apple_qr = generate_qr_code(lat, lon, image_path.stem, output_dir=output_path)
+                google_qr, apple_qr = generate_qr_codes(
+                    lat, lon, image_path.stem, output_dir=output_path
+                )
                 image_metadata[image_path.stem].google_qr_code_path = google_qr
                 image_metadata[image_path.stem].apple_qr_code_path = apple_qr
-    if image_metadata:
-        generate_pdf(image_metadata, output_file=f"{project_name}.pdf")
+    filtered_data = [
+        meta for meta in image_metadata.values() if meta.google_qr_code_path is not None
+    ]
+    if filtered_data:
+        generate_pdf(filtered_data, output_file=f"{project_name}.pdf")
 
 
 if __name__ == "__main__":
