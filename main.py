@@ -1,5 +1,7 @@
 import os
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Optional, Dict
 
 import qrcode
 from PIL import Image, ExifTags
@@ -76,29 +78,38 @@ def generate_qr_code(lat, lon, filename, output_dir):
 
     return google_output_file, apple_output_file
 
+@dataclass
+class ImageMetadata:
+    name: str
+    path: str
+    gps_info: Optional[Dict] = field(default_factory=dict)
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    google_qr_code_path: Optional[str] = None
+    apple_qr_code_path: Optional[str] = None
 
-def generate_pdf(image_metadata, output_file="output.pdf"):
+def generate_pdf(image_metadata: Dict[str, ImageMetadata], output_file="output.pdf"):
     """Create a PDF with each page containing the original image and QR codes."""
     c = canvas.Canvas(output_file, pagesize=letter)
     width, height = letter
     for metadata in tqdm(image_metadata.values(), desc="Adding images to the PDF", unit="image"):
         # Add the filename at the top of the page
-        filename = Path(metadata["name"])
+        filename = Path(metadata.name)
         c.setFont("Helvetica-Bold", 16)
         c.drawString(30, height - 50, f"File: {filename}")
 
         # Draw the original image (large version)
-        original_img = ImageReader(metadata["path"])
+        original_img = ImageReader(metadata.path)
         c.drawImage(original_img, 30, height / 2, width - 60, height / 2 - 80, preserveAspectRatio=True)
 
         # Draw the Google Maps QR code (small version)
         c.drawString(60, 175, "Google Maps")
-        google_qr = ImageReader(metadata["google_qr"])
+        google_qr = ImageReader(metadata.google_qr_code_path)
         c.drawImage(google_qr, 50, 50, 120, 120, preserveAspectRatio=True)
 
         # Draw the Apple Maps QR code (small version)
         c.drawString(215, 175, "Apple Maps")
-        apple_qr = ImageReader(metadata["apple_qr"])
+        apple_qr = ImageReader(metadata.apple_qr_code_path)
         c.drawImage(apple_qr, 200, 50, 120, 120, preserveAspectRatio=True)
 
         # Move to the next page
@@ -108,10 +119,11 @@ def generate_pdf(image_metadata, output_file="output.pdf"):
     c.save()
     print(f"PDF saved as '{output_file}'.")
 
+
 def main():
     print("Running script")
     register_heif_opener()
-    project_name = "stucco_repair"
+    project_name = "test"
     directory_path = f"images/{project_name}"
     output_path = f"output/{project_name}"
 
@@ -123,19 +135,19 @@ def main():
 
     image_metadata = {}
     for image_path in tqdm(image_dir.glob("*.HEIC"), desc="Processing images", unit="image"):  # Iterate over all files
-        image_metadata[image_path.stem] = {"name": image_path.stem, "path": str(image_path)}
+        image_metadata[image_path.stem] = ImageMetadata(name=image_path.stem, path=image_path)
 
         gps_info = get_gps_data(str(image_path))
-        image_metadata[image_path.stem]["gps_info"] = gps_info
+        image_metadata[image_path.stem].gps_info = gps_info
 
         if gps_info:
             lat, lon = extract_gps_coordinates(gps_info)
-            image_metadata[image_path.stem]["latitude"] = lat
-            image_metadata[image_path.stem]["longitude"] = lon
+            image_metadata[image_path.stem].latitude = lat
+            image_metadata[image_path.stem].longitude = lon
             if lat is not None and lon is not None:
                 google_qr, apple_qr = generate_qr_code(lat, lon, image_path.stem, output_dir=output_path)
-                image_metadata[image_path.stem]["google_qr"] = google_qr
-                image_metadata[image_path.stem]["apple_qr"] = apple_qr
+                image_metadata[image_path.stem].google_qr_code_path = google_qr
+                image_metadata[image_path.stem].apple_qr_code_path = apple_qr
     if image_metadata:
         generate_pdf(image_metadata, output_file=f"{project_name}.pdf")
 
