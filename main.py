@@ -7,6 +7,7 @@ from pillow_heif import register_heif_opener
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
+from tqdm import tqdm
 
 GPS_TAG = 34853  # GPSInfo tag ID
 
@@ -80,8 +81,7 @@ def generate_pdf(image_metadata, output_file="output.pdf"):
     """Create a PDF with each page containing the original image and QR codes."""
     c = canvas.Canvas(output_file, pagesize=letter)
     width, height = letter
-
-    for metadata in image_metadata.values():
+    for metadata in tqdm(image_metadata.values(), desc="Adding images to the PDF", unit="image"):
         # Add the filename at the top of the page
         filename = Path(metadata["name"])
         c.setFont("Helvetica-Bold", 16)
@@ -92,12 +92,12 @@ def generate_pdf(image_metadata, output_file="output.pdf"):
         c.drawImage(original_img, 30, height / 2, width - 60, height / 2 - 80, preserveAspectRatio=True)
 
         # Draw the Google Maps QR code (small version)
-        c.drawString(50, 50, "Google Maps")
+        c.drawString(60, 175, "Google Maps")
         google_qr = ImageReader(metadata["google_qr"])
         c.drawImage(google_qr, 50, 50, 120, 120, preserveAspectRatio=True)
 
         # Draw the Apple Maps QR code (small version)
-        c.drawString(50, 50, "Apple Maps")
+        c.drawString(215, 175, "Apple Maps")
         apple_qr = ImageReader(metadata["apple_qr"])
         c.drawImage(apple_qr, 200, 50, 120, 120, preserveAspectRatio=True)
 
@@ -111,8 +111,9 @@ def generate_pdf(image_metadata, output_file="output.pdf"):
 def main():
     print("Running script")
     register_heif_opener()
-    directory_path = "images/stucco_repair"
-    output_path = "output/stucco_repair"
+    project_name = "stucco_repair"
+    directory_path = f"images/{project_name}"
+    output_path = f"output/{project_name}"
 
     image_dir = Path(directory_path)
 
@@ -121,8 +122,7 @@ def main():
         return
 
     image_metadata = {}
-    for image_path in image_dir.glob("*.HEIC"):  # Iterate over all files
-        print(f"Processing: {image_path}")
+    for image_path in tqdm(image_dir.glob("*.HEIC"), desc="Processing images", unit="image"):  # Iterate over all files
         image_metadata[image_path.stem] = {"name": image_path.stem, "path": str(image_path)}
 
         gps_info = get_gps_data(str(image_path))
