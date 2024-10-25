@@ -4,6 +4,9 @@ from pathlib import Path
 import qrcode
 from PIL import Image, ExifTags
 from pillow_heif import register_heif_opener
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.utils import ImageReader
+from reportlab.pdfgen import canvas
 
 GPS_TAG = 34853  # GPSInfo tag ID
 
@@ -73,6 +76,38 @@ def generate_qr_code(lat, lon, filename, output_dir):
     return google_output_file, apple_output_file
 
 
+def generate_pdf(image_metadata, output_file="output.pdf"):
+    """Create a PDF with each page containing the original image and QR codes."""
+    c = canvas.Canvas(output_file, pagesize=letter)
+    width, height = letter
+
+    for metadata in image_metadata.values():
+        # Add the filename at the top of the page
+        filename = Path(metadata["name"])
+        c.setFont("Helvetica-Bold", 16)
+        c.drawString(30, height - 50, f"File: {filename}")
+
+        # Draw the original image (large version)
+        original_img = ImageReader(metadata["path"])
+        c.drawImage(original_img, 30, height / 2, width - 60, height / 2 - 80, preserveAspectRatio=True)
+
+        # Draw the Google Maps QR code (small version)
+        c.drawString(50, 50, "Google Maps")
+        google_qr = ImageReader(metadata["google_qr"])
+        c.drawImage(google_qr, 50, 50, 120, 120, preserveAspectRatio=True)
+
+        # Draw the Apple Maps QR code (small version)
+        c.drawString(50, 50, "Apple Maps")
+        apple_qr = ImageReader(metadata["apple_qr"])
+        c.drawImage(apple_qr, 200, 50, 120, 120, preserveAspectRatio=True)
+
+        # Move to the next page
+        c.showPage()
+
+    # Save the PDF
+    c.save()
+    print(f"PDF saved as '{output_file}'.")
+
 def main():
     print("Running script")
     register_heif_opener()
@@ -101,10 +136,8 @@ def main():
                 google_qr, apple_qr = generate_qr_code(lat, lon, image_path.stem, output_dir=output_path)
                 image_metadata[image_path.stem]["google_qr"] = google_qr
                 image_metadata[image_path.stem]["apple_qr"] = apple_qr
-    for key, value in image_metadata.items():
-        print(key)
-        for k, v in value.items():
-            print(f"\t{k}:{v}")
+    if image_metadata:
+        generate_pdf(image_metadata, output_file=f"{project_name}.pdf")
 
 
 if __name__ == "__main__":
