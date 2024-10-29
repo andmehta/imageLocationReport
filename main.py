@@ -1,3 +1,4 @@
+import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -11,29 +12,41 @@ from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 from tqdm import tqdm
 
-GPS_TAG = 34853  # GPSInfo tag ID
+logger = logging.getLogger()
+logging.basicConfig(
+    level=logging.INFO,  # Set logging level to DEBUG if necessary
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler()  # Output to console (stdout)
+    ]
+)
 
 
-def get_gps_data(image_path):
+def get_gps_data(image_path: str):
     if not os.path.exists(image_path):
         raise FileNotFoundError(f"File not found: {image_path}")
 
     # Open the image and get the EXIF data
     with Image.open(image_path) as img:
-        exif_data = img.getexif()
+        raw_exif_data = img.getexif()
+        if not raw_exif_data:
+            logger.warning("no exif data found")
+            return None
+        exif_data = {ExifTags.TAGS.get(tag, tag): value for tag, value in raw_exif_data.items()}
+        logger.debug("%s = %s", image_path, exif_data)
 
-        # Check if GPSInfo tag (34853) exists
-        if GPS_TAG in exif_data:
-            raw_gps_data = exif_data.get_ifd(GPS_TAG)
-
-            gps_info = {
-                ExifTags.GPSTAGS.get(tag, tag): value
-                for tag, value in raw_gps_data.items()
-            }
-            return gps_info
-
-    return None  # Return None if no GPS data is found
-
+        gps_tag = 34853  # GPSInfo tag ID
+        if gps_tag not in raw_exif_data:
+            logger.warning("no GPS info in the exif data, skipping %s", image_path)
+            return None
+        raw_gps_data = raw_exif_data.get_ifd(gps_tag)
+        logger.debug("gps raw %s", str(raw_gps_data))
+        gps_info = {
+            ExifTags.GPSTAGS.get(tag, tag): value
+            for tag, value in raw_gps_data.items()
+        }
+        logger.debug(gps_info)
+        return gps_info
 
 def convert_to_decimal(degrees, minutes, seconds, direction):
     """Convert DMS (Degrees, Minutes, Seconds) to Decimal."""
@@ -49,7 +62,10 @@ def extract_gps_coordinates(gps_info):
     latitude_ref = gps_info.get("GPSLatitudeRef")
     longitude = gps_info.get("GPSLongitude")
     longitude_ref = gps_info.get("GPSLongitudeRef")
-
+    logger.debug("latitude %d", latitude)
+    logger.debug("latitude_ref %d", latitude_ref)
+    logger.debug("longitude %d", longitude)
+    logger.debug("longitude_ref %d", longitude_ref)
     if latitude and latitude_ref and longitude and longitude_ref:
         lat = convert_to_decimal(*latitude, latitude_ref)
         lon = convert_to_decimal(*longitude, longitude_ref)
@@ -58,19 +74,20 @@ def extract_gps_coordinates(gps_info):
 
 
 def generate_qr_codes(lat: float, lon: float, filename: str, output_dir: str):
-    """Generate and save a QR code that opens Google Maps."""
+    """Generate and save a QR code that opens Google Maps.
+    input: lat and lon need to be floating point numbers for latitude and longitude. """
 
-    def generate_qr(provider, image_name, url):
+    def generate_qr(provider, url):
         qr = qrcode.make(url)
-        output_file = f"{output_dir}/{image_name}_{provider}_location_qr.png"
+        output_file = f"{output_dir}/{filename}_{provider}_maps_qr.png"
         qr.save(output_file)
         return output_file
 
     google_output_file = generate_qr(
-        "google", filename, f"https://www.google.com/maps?q={lat},{lon}"
+        "google", f"https://www.google.com/maps?q={lat},{lon}"
     )
     apple_output_file = generate_qr(
-        "apple", filename, f"https://maps.apple.com/?q={lat},{lon}"
+        "apple", f"https://maps.apple.com/?q={lat},{lon}"
     )
 
     return google_output_file, apple_output_file
@@ -122,11 +139,11 @@ def generate_pdf(images_metadata: List[ImageMetadata], output_file="output.pdf")
 
     # Save the PDF
     c.save()
-    print(f"PDF saved as '{output_file}'.")
+    logger.info(f"PDF saved as '%s'.", output_file)
 
 
 def main():
-    print("Running script")
+    logger.info("Running script")
 
     project_name = "test"
     directory_path = f"images/{project_name}"
@@ -136,7 +153,7 @@ def main():
     image_dir = Path(directory_path)
 
     if not image_dir.exists():
-        print(f"Directory not found: {directory_path}")
+        logger.error(f"Directory not found: %s", directory_path)
         return
     output_dir = Path(output_path)
     output_dir.mkdir(exist_ok=True)
@@ -146,6 +163,7 @@ def main():
     image_metadata = {}
     valid_extensions = {".jpg", ".HEIC", ".png", ".jpeg"}
     images = [f for f in image_dir.glob("*") if f.suffix in valid_extensions]
+    logger.info("processing %d image%s", len(images), "" if len(images) == 1 else "s")
     for image_path in tqdm(
         images, desc="Processing images", unit="image"
     ):  # Iterate over all files
@@ -171,6 +189,8 @@ def main():
     ]
     if filtered_data:
         generate_pdf(filtered_data, output_file=f"{project_name}.pdf")
+    else:
+        logger.warning("No metadata to process")
 
 
 if __name__ == "__main__":
